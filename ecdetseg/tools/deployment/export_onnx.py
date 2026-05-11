@@ -28,7 +28,12 @@ def main(args, ):
     task = cfg.yaml_cfg['task']
 
     if args.resume:
-        cfg.yaml_cfg['ViTAdapter']['skip_load_backbone'] = True
+        # Backbone weights will be overwritten by the resume checkpoint;
+        # skip the default backbone-load to avoid a redundant download.
+        if 'ViTAdapter' in cfg.yaml_cfg:
+            cfg.yaml_cfg['ViTAdapter']['skip_load_backbone'] = True
+        if 'ConvNeXtAdapter' in cfg.yaml_cfg:
+            cfg.yaml_cfg['ConvNeXtAdapter']['pretrained'] = False
         checkpoint = torch.load(args.resume, map_location='cpu')
         if 'ema' in checkpoint:
             state = checkpoint['ema']['module']
@@ -46,34 +51,30 @@ def main(args, ):
         def __init__(self, ) -> None:
             super().__init__()
             self.model = cfg.model.deploy()
-            self.postprocessor = cfg.postprocessor.deploy()
 
-        def forward(self, images, orig_target_sizes):
+        def forward(self, images):
             outputs = self.model(images)
-            outputs = self.postprocessor(outputs, orig_target_sizes)
-            return outputs
+            return outputs['pred_logits'], outputs['pred_boxes']
 
     model = Model()
+    model = model.cpu()
+    model.eval()
 
     img_size = cfg.yaml_cfg["eval_spatial_size"]
     data = torch.rand(1, 3, *img_size)
     size = torch.tensor([img_size])
-    _ = model(data, size)
+    _ = model(data)
 
-    dynamic_axes = {
-        'images': {0: 'N', },
-        'orig_target_sizes': {0: 'N'}
-    }
+    dynamic_axes = None
 
     output_file = args.resume.replace('.pth', '.onnx') if args.resume else 'model.onnx'
-    output_names = ['labels', 'boxes', 'scores'] + (['masks'] if task == 'segmentation' else [])
     
     torch.onnx.export(
         model,
-        (data, size),
+        (data,),
         output_file,
-        input_names=['images', 'orig_target_sizes'],
-        output_names=output_names,
+        input_names=['images'],
+        output_names=['pred_logits', 'pred_boxes'],
         dynamic_axes=dynamic_axes,
         opset_version=args.opset,
         verbose=False,
@@ -89,9 +90,7 @@ def main(args, ):
     if args.simplify:
         import onnx
         import onnxsim
-        dynamic = True
-        # input_shapes = {'images': [1, 3, 640, 640], 'orig_target_sizes': [1, 2]} if dynamic else None
-        input_shapes = {'images': data.shape, 'orig_target_sizes': size.shape} if dynamic else None
+        input_shapes = {'images': data.shape}
         onnx_model_simplify, check = onnxsim.simplify(output_file, test_input_shapes=input_shapes)
         onnx.save(onnx_model_simplify, output_file)
         print(f'Simplify onnx model {check}...')
