@@ -35,6 +35,11 @@ def main(args, ):
         if 'ConvNeXtAdapter' in cfg.yaml_cfg:
             cfg.yaml_cfg['ConvNeXtAdapter']['pretrained'] = False
         checkpoint = torch.load(args.resume, map_location='cpu')
+
+    # Export-time override: swap exact GELU (ONNX:Erf) for tanh-approx GELU
+    # (ONNX:Tanh) when targeting backends without Erf support (e.g. MNN Metal).
+    if args.gelu_tanh and 'ConvNeXtAdapter' in cfg.yaml_cfg:
+        cfg.yaml_cfg['ConvNeXtAdapter']['gelu_approximate'] = 'tanh'
         if 'ema' in checkpoint:
             state = checkpoint['ema']['module']
         else:
@@ -105,5 +110,9 @@ if __name__ == '__main__':
     parser.add_argument('--opset', type=int, default=18,)
     parser.add_argument('--check',  action='store_true')
     parser.add_argument('--simplify',  action='store_true')
+    parser.add_argument('--gelu-tanh', action='store_true',
+                        help='Swap exact GELU for tanh-approximate GELU before export. '
+                             'Avoids the ONNX Erf op for backends that lack it '
+                             '(e.g. MNN Metal). Only affects ConvNeXtAdapter configs.')
     args = parser.parse_args()
     main(args)

@@ -31,6 +31,7 @@ class ConvNeXtAdapter(nn.Module):
         out_indices: Sequence[int] = (1, 2, 3),
         proj_dim: Optional[Union[int, List[int]]] = None,
         drop_path_rate: float = 0.1,
+        gelu_approximate: str = "none",
     ):
         super().__init__()
         self.name = name
@@ -43,6 +44,15 @@ class ConvNeXtAdapter(nn.Module):
             out_indices=self.out_indices,
             drop_path_rate=drop_path_rate,
         )
+
+        # Optionally swap exact GELU (ONNX: Erf) for tanh-approximate GELU
+        # (ONNX: Tanh + arithmetic). Use 'tanh' when exporting for backends
+        # that don't implement Erf (e.g. MNN Metal). Numerically within ~1e-3
+        # of exact GELU; no learned parameters change.
+        if gelu_approximate not in ("none", "tanh"):
+            raise ValueError(f"gelu_approximate must be 'none' or 'tanh', got {gelu_approximate!r}")
+        if gelu_approximate == "tanh":
+            self._swap_gelu_to_tanh()
 
         feat_channels = list(self.backbone.feature_info.channels())
         feat_strides = list(self.backbone.feature_info.reduction())
@@ -74,6 +84,17 @@ class ConvNeXtAdapter(nn.Module):
             self.out_channels = dims
 
         self._log_loaded(pretrained)
+
+    def _swap_gelu_to_tanh(self) -> None:
+        # Match by class name "GELU" so both nn.GELU and timm.layers.activations.GELU
+        # are covered. The timm variant has no `approximate` attr and uses exact erf.
+        swapped = 0
+        for parent in self.backbone.modules():
+            for child_name, child in list(parent.named_children()):
+                if type(child).__name__ == "GELU" and getattr(child, "approximate", "none") != "tanh":
+                    setattr(parent, child_name, nn.GELU(approximate="tanh"))
+                    swapped += 1
+        print(f"ConvNeXtAdapter: swapped {swapped} GELU(exact) -> nn.GELU(approximate='tanh') for export-friendly Erf-free graph")
 
     def _log_loaded(self, pretrained: bool) -> None:
         rank_ok = True
