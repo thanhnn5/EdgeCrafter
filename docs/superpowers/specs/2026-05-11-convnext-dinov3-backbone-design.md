@@ -100,12 +100,13 @@ class ConvNeXtAdapter(nn.Module):
         return [p(f) for p, f in zip(self.projector, feats)]
 ```
 
-### 3.2 Channel-projection choice: project-or-not
+### 3.2 Channel-projection choice: project to hidden_dim in the adapter
 
-`HybridEncoder` has its own `input_proj` per level. Two options:
+**Correction (2026-05-11, during implementation):** an earlier draft of this spec assumed `HybridEncoder` had a per-level `input_proj`. It does not — `HybridEncoder.in_channels` is used only for module-list lengths; all internal blocks consume `hidden_dim` channels directly. Existing `ecdet_l.yml` confirms this by setting `ViTAdapter.proj_dim: 256` and `HybridEncoder.in_channels: [256, 256, 256]`.
 
-- **(A1, chosen)** `proj_dim=None`. Emit native `[192, 384, 768]` channels. HybridEncoder's `input_proj` handles unification to `hidden_dim`.
-- (A2, rejected) Project to `[hidden_dim]*3` in the adapter. Mirrors `ViTAdapter`'s shape, but squashes the deepest stage from 768 → 256 channels before the encoder can use that capacity, wasting representational width that ConvNeXt produces for free. The paper had no choice here because ViT was uniform width; we do.
+Consequence: `ConvNeXtAdapter` must project all stage outputs to `hidden_dim` (256) before they reach the encoder. The `proj_dim` parameter on the adapter handles this with 1×1 ConvNormLayer_fuse per level. We accept the capacity squash at the deepest stage (768 → 256) as the cost of reusing the encoder unchanged.
+
+(The `proj_dim=None` branch is still implemented in the adapter for future use cases — e.g., a modified HybridEncoder that does its own per-level projection — but is unused by the current config.)
 
 ### 3.3 Differences from `ViTAdapter`
 
@@ -141,10 +142,10 @@ ConvNeXtAdapter:
   pretrained: true
   out_indices: [1, 2, 3]
   drop_path_rate: 0.1
-  proj_dim: null            # emit native channels
+  proj_dim: 256            # HybridEncoder has no input_proj; adapter must emit hidden_dim channels
 
 HybridEncoder:
-  in_channels: [192, 384, 768]   # native ConvNeXt-Tiny stage channels
+  in_channels: [256, 256, 256]   # already at hidden_dim after ConvNeXtAdapter.projector
   feat_strides: [8, 16, 32]
   hidden_dim: 256
   dim_feedforward: 1024

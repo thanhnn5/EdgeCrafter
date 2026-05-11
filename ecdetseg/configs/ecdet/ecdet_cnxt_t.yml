@@ -1,0 +1,74 @@
+__include__: [
+  '../dataset/coco.yml',
+  'ecdet.yml',
+]
+
+output_dir: outputs/ecdet_cnxt_t
+
+
+ECDet:
+  backbone: ConvNeXtAdapter
+
+
+ConvNeXtAdapter:
+  name: convnext_tiny.dinov3_lvd1689m
+  pretrained: true
+  out_indices: [1, 2, 3]
+  drop_path_rate: 0.1
+  proj_dim: 256                  # HybridEncoder has no input_proj; adapter must emit hidden_dim channels
+
+
+HybridEncoder:
+  in_channels: [256, 256, 256]   # already at hidden_dim after ConvNeXtAdapter.projector
+  feat_strides: [8, 16, 32]
+  hidden_dim: 256
+  dim_feedforward: 1024
+
+
+ECTransformer:
+  feat_channels: [256, 256, 256]
+  hidden_dim: 256
+  num_layers: 4
+  eval_idx: -1
+
+
+optimizer:
+  type: AdamW
+
+  params:
+    -
+      # backbone weights (non norm/bn/bias): tiny LR to preserve DINOv3 features
+      params: '^(?=.*.backbone)(?!.*(?:norm|bn|bias)).*$'
+      lr: 0.000005
+    -
+      # backbone norm/bn/bias: same tiny LR, no weight decay
+      params: '^(?=.*.backbone)(?=.*(?:norm|bn|bias)).*$'
+      lr: 0.000005
+      weight_decay: 0.
+    -
+      # head norm/bn/bias: no weight decay
+      params: '^(?!.*\.backbone)(?=.*(?:norm|bn|bias)).*$'
+      weight_decay: 0.
+
+  lr: 0.0005
+  betas: [0.9, 0.999]
+  weight_decay: 0.0001
+
+
+epochs: 62
+warmup_iter: 2000
+lr_gamma: 0.5
+
+eval_spatial_size: [640, 640]
+
+
+train_dataloader:
+  dataset:
+    transforms:
+      mosaic_epoch: 30
+      mosaic_prob: 0.75
+      stop_epoch: 60
+
+  collate_fn:
+    mixup_prob: 0.75
+    mixup_epoch: 30
