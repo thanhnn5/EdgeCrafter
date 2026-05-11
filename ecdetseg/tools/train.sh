@@ -74,6 +74,8 @@ if [[ "${WANDB_DISABLED:-}" == "true" || "${WANDB_MODE:-}" == "disabled" ]]; the
 else
     echo "  logging:   wandb (project=$WANDB_PROJECT)"
 fi
+echo "  note:      ConvNeXt configs train with tanh-GELU by default"
+echo "             (matches ONNX/MNN deployment numerics; see ecdet_cnxt_t.yml)"
 echo "===================================================================="
 
 if [[ "$NUM_GPUS" -le 1 ]]; then

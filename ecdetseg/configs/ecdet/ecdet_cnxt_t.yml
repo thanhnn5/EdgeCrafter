@@ -16,6 +16,8 @@ ConvNeXtAdapter:
   out_indices: [1, 2, 3]
   drop_path_rate: 0.1
   proj_dim: 256                  # HybridEncoder has no input_proj; adapter must emit hidden_dim channels
+  gelu_approximate: tanh         # train with tanh-GELU so PyTorch <-> ONNX/MNN numerics match
+                                 # (avoids the Erf op that MNN Metal doesn't support; ~1e-3 vs exact)
 
 
 HybridEncoder:
