@@ -13,3 +13,4 @@ onnx==1.19.0
 onnxruntime
 opencv-python
 timm>=1.0.19
+wandb

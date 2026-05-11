@@ -279,17 +279,34 @@ class BaseConfig(object):
         self._evaluator = fn
 
     @property
-    def writer(self) -> SummaryWriter:
+    def writer(self):
+        """Default backend: wandb. Falls back to TensorBoard if wandb is
+        unavailable, disabled (WANDB_DISABLED=true / WANDB_MODE=disabled),
+        or its init raises.
+        """
         if self._writer is None and is_main_process():
-            if self.summary_dir:
-                self._writer = SummaryWriter(self.summary_dir)
-            elif self.output_dir:
-                self._writer = SummaryWriter(Path(self.output_dir) / 'summary')
+            log_dir = self.summary_dir or (str(Path(self.output_dir) / 'summary') if self.output_dir else None)
+            if log_dir is None:
+                return self._writer
+
+            from .wandb_writer import wandb_available, WandbWriter
+            if wandb_available():
+                try:
+                    self._writer = WandbWriter(log_dir=log_dir)
+                except Exception as e:  # network/auth/init failure -> TB
+                    print(f'[writer] wandb init failed ({e!r}); falling back to TensorBoard')
+                    self._writer = SummaryWriter(log_dir)
+            else:
+                self._writer = SummaryWriter(log_dir)
         return self._writer
 
     @writer.setter
     def writer(self, m):
-        assert isinstance(m, SummaryWriter), f'{type(m)} must be SummaryWriter'
+        # Accept either SummaryWriter or our WandbWriter adapter.
+        from .wandb_writer import WandbWriter
+        assert isinstance(m, (SummaryWriter, WandbWriter)), (
+            f'{type(m)} must be SummaryWriter or WandbWriter'
+        )
         self._writer = m
 
     def __repr__(self, ):
