@@ -8,6 +8,7 @@ Copyright(c) 2023 lyuwenyu. All Rights Reserved.
 
 
 from .criterion import ECCriterion
+from .convnext import ConvNeXtAdapter
 from .decoder import ECTransformer
 from .ecvit import ViTAdapter
 from .hybrid_encoder import HybridEncoder
